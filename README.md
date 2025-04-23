@@ -2,7 +2,7 @@
 Code for "CGC-GS: Cross Geometric Cues Constrained Gaussian Splatting". Once the code is organized, more details will be posted.
 # Results
  ![](./images/f1.jpg "Our results on public datasets.")
- Quantitive results on DTU dataset:
+ Chamfer distance (↓) results on DTU dataset:
 |                | 24   | 37   | 40   | 55   | 63   | 65   | 69   | 83   | 97   | 105  | 106  | 110  | 114  | 118  | 122  | Mean |
 |----------------|------|------|------|------|------|------|------|------|------|------|------|------|------|------|------|------|
 | **2DGS**       | 0.51 | 0.96 | 0.38 | 0.43 | 1.02 | 0.89 | 0.80 | 1.37 | 1.24 | 0.70 | 0.68 | 1.50 | 0.41 | 0.72 | 0.52 | 0.81 |
