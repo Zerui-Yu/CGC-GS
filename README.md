@@ -1,5 +1,6 @@
 # CGC-GS
 Code for "CGC-GS: Cross Geometric Cues Constrained Gaussian Splatting". Once the code is organized, more details will be posted.
+2025.07.10: Our paper is in peer review.
 # Results
  ![](./images/f1.jpg "Our results on public datasets.")
  Chamfer distance (↓) results on DTU dataset:
