@@ -1,0 +1,6 @@
+open3d
+git+https://github.com/facebookresearch/pytorch3d.git
+plyfile
+opencv-python
+lpips
+trimesh
