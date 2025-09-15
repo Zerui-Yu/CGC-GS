@@ -131,6 +131,39 @@ def edge_aware_curvature_loss(I, D, mask=None):
         return (loss_x + loss_y).mean()
 
 
+def scale_invariant_gradient_loss_ori(pred_depth, gt_depth, eps=1e-6, mask=None, use_mask=0):
+    """
+    our scale invariant depth loss
+    Parm：
+        pred_depth: [1, H, W]
+        gt_depth: [1, H, W]
+    """
+
+    log_pred = torch.log(pred_depth + eps)
+    log_gt = torch.log(gt_depth + eps)
+
+    if use_mask == 1:
+        mask = mask.to("cuda")
+        log_pred = log_pred * mask
+        log_gt = log_gt * mask
+
+    grad_pred_x = log_pred[:, :, 1:] - log_pred[:, :, :-1]
+    grad_gt_x = log_gt[:, :, 1:] - log_gt[:, :, :-1]
+
+    grad_pred_y = log_pred[:, 1:, :] - log_pred[:, :-1, :]
+    grad_gt_y = log_gt[:, 1:, :] - log_gt[:, :-1, :]
+
+    grad_pred_x = torch.nan_to_num(grad_pred_x, nan=0.0)
+    grad_pred_y = torch.nan_to_num(grad_pred_y, nan=0.0)
+    grad_gt_x = torch.nan_to_num(grad_gt_x, nan=0.0)
+    grad_gt_y = torch.nan_to_num(grad_gt_y, nan=0.0)
+
+    loss_x = torch.abs(grad_pred_x - grad_gt_x).mean()
+    loss_y = torch.abs(grad_pred_y - grad_gt_y).mean()
+
+    return loss_x + loss_y
+
+
 def get_img_grad_weight(img, beta=2.0):
     _, hd, wd = img.shape
     bottom_point = img[..., 2:hd, 1:wd - 1]
@@ -144,6 +177,113 @@ def get_img_grad_weight(img, beta=2.0):
     grad_img = (grad_img - grad_img.min()) / (grad_img.max() - grad_img.min())
     grad_img = torch.nn.functional.pad(grad_img[None, None], (1, 1, 1, 1), mode='constant', value=1.0).squeeze()
     return grad_img
+
+
+def cof_guide_normal_loss(rend_normal, surf_normal, prior_normal, gt_image, use_prior_n=1, use_cof=1, cof_gamma=0.2,
+                          lambda_normal=0.02):
+    if prior_normal is not None and use_prior_n == 1 and use_cof == 1:
+
+        angular_error = compute_angular_error(surf_normal, prior_normal, use_abs=True)
+        confidence = compute_confidence_from_angular_error(angular_error, sigma=0.2)
+
+        # gamma in the Eq.(11)
+        # threshold_gamma = linear_schedule(iteration, start_value=opt.cof_gamma, end_value=0.5)
+        mask_high_conf = (confidence >= cof_gamma)
+
+        # —— Prepare Normal Loss——
+        # 1) cof >= gamma
+        normal_error_prior_0 = 1 - torch.abs((rend_normal * prior_normal).sum(dim=0))
+        normal_error_prior_1 = 1 - torch.abs((surf_normal * prior_normal).sum(dim=0))
+        # normal_error_prior_0 = 1 - (rend_normal * prior_normal).sum(dim=0)
+        # normal_error_prior_1 = 1 - (surf_normal * prior_normal).sum(dim=0)
+
+        # 2) cof < gamma
+        normal_error_surf = 1 - torch.abs((rend_normal * surf_normal).sum(dim=0))  # (H, W)
+        # normal_error_surf = 1 - (rend_normal * surf_normal).sum(dim=0) # (H, W)
+
+        # Eq.(11)
+        final_normal_error = torch.where(mask_high_conf, (normal_error_prior_0 + normal_error_prior_1),
+                                         2 * normal_error_surf)
+
+        # with the gradient of gt
+        final_normal_error = final_normal_error[None]
+        image_weight = (1.0 - get_img_grad_weight(gt_image))
+        image_weight = ((image_weight).clamp(0, 1).detach() ** 2).unsqueeze(0)
+        final_normal_error = image_weight * final_normal_error
+        normal_loss = lambda_normal * final_normal_error.mean()
+
+    elif prior_normal is not None and use_prior_n == 1 and use_cof == 0:
+
+        # normal_error_prior_0 = 1 - torch.abs((rend_normal * prior_normal).sum(dim=0))  # (H, W)
+        # normal_error_prior_1 = 1 - torch.abs((surf_normal * prior_normal).sum(dim=0))
+        normal_error_prior_0 = 1 - (rend_normal * prior_normal).sum(dim=0)  # (H, W)
+        normal_error_prior_1 = 1 - (surf_normal * prior_normal).sum(dim=0)
+
+        final_normal_error = normal_error_prior_0 + normal_error_prior_1
+        final_normal_error = final_normal_error[None]
+        image_weight = (1.0 - get_img_grad_weight(gt_image))
+        image_weight = ((image_weight).clamp(0, 1).detach() ** 2).unsqueeze(0)
+        final_normal_error = image_weight * final_normal_error
+        normal_loss = lambda_normal * final_normal_error.mean()
+
+    else:
+        normal_error = (1 - torch.abs((rend_normal * surf_normal).sum(dim=0)))[None]
+        # normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        image_weight = (1.0 - get_img_grad_weight(gt_image))
+        image_weight = ((image_weight).clamp(0, 1).detach() ** 2).unsqueeze(0)
+        normal_error = image_weight * normal_error
+        normal_loss = lambda_normal * (normal_error).mean()
+
+    return normal_loss
+
+
+def scale_invariant_gradient_loss(
+        pred_depth, gt_depth, eps=1e-6, mask=None, use_mask=0,
+        p_low=0.10, p_high=0.90
+):
+    with torch.no_grad():
+        dev = gt_depth.device
+        valid = torch.isfinite(gt_depth) & (gt_depth > eps)
+
+        if valid.any():
+            ql, qh = torch.quantile(
+                gt_depth[valid].float(), torch.tensor([p_low, p_high], device=dev)
+            )
+            valid = valid & (gt_depth >= ql) & (gt_depth <= qh)
+
+        if (mask is not None) and (use_mask == 1):
+            valid = valid & (mask.to(dev).bool())
+
+    log_pred = torch.log(pred_depth + eps)
+    log_gt = torch.log(gt_depth + eps)
+
+    grad_pred_x = log_pred[:, :, 1:] - log_pred[:, :, :-1]
+    grad_gt_x = log_gt[:, :, 1:] - log_gt[:, :, :-1]
+    grad_pred_y = log_pred[:, 1:, :] - log_pred[:, :-1, :]
+    grad_gt_y = log_gt[:, 1:, :] - log_gt[:, :-1, :]
+
+    valid_x = valid[:, :, 1:] & valid[:, :, :-1]
+    valid_y = valid[:, 1:, :] & valid[:, :-1, :]
+
+    grad_pred_x = torch.nan_to_num(grad_pred_x, nan=0.0, posinf=0.0, neginf=0.0)
+    grad_pred_y = torch.nan_to_num(grad_pred_y, nan=0.0, posinf=0.0, neginf=0.0)
+    grad_gt_x = torch.nan_to_num(grad_gt_x, nan=0.0, posinf=0.0, neginf=0.0)
+    grad_gt_y = torch.nan_to_num(grad_gt_y, nan=0.0, posinf=0.0, neginf=0.0)
+
+    diff_x = (grad_pred_x - grad_gt_x).abs()
+    diff_y = (grad_pred_y - grad_gt_y).abs()
+
+    if valid_x.any():
+        loss_x = diff_x[valid_x].mean()
+    else:
+        loss_x = torch.tensor(0.0, device=gt_depth.device)
+
+    if valid_y.any():
+        loss_y = diff_y[valid_y].mean()
+    else:
+        loss_y = torch.tensor(0.0, device=gt_depth.device)
+
+    return loss_x + loss_y
 
 
 def lncc(ref, nea):
