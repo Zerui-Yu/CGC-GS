@@ -28,7 +28,7 @@ The data folder should like this (We provide some examples in "data" file):
 ```shell
 data
 ├── dtu_dataset
-│   │   ├── dtu
+│   ├── dtu
 │   │   ├── scan24
 │   │   │   ├── images
 │   │   │   ├── mask
@@ -49,7 +49,7 @@ data
 ## Training and Evaluation
 ```shell
 # DTU dataset
-python train.py -s ./data/DTU/scan55 -m ./output/DTU/scan55 --data_device cuda --quiet -r 2 --test_iterations -1
+python train.py -s ./data/dtu_dataset/dtu/scan55 -m ./output/DTU/scan55 --data_device cuda --quiet -r 2 --test_iterations -1
 ```
 
 ## Mesh:
