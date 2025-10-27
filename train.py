@@ -480,7 +480,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if iteration < opt.densify_until_iter:
                 opacity_reset_interval = opt.opacity_reset_interval
                 if iteration > 5000:
-                    opacity_reset_interval = opt.opacity_reset_interval-1000
+                    opacity_reset_interval = opt.opacity_reset_interval
                 if iteration % opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
 
