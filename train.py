@@ -161,7 +161,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, app_model=app_model, depth_threshold=opt.depth_threshold, use_drop_gaussian=opt.use_drop, iteration=iteration)
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, app_model=app_model, depth_threshold=opt.depth_threshold)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         gt_image, gt_image_gray, gt_image_census = viewpoint_cam.get_image()
 
